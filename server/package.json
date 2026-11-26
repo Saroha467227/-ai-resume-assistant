@@ -1,0 +1,27 @@
+{
+  "name": "resume-studio-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch src/index.js",
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "test": "node --test",
+    "seed:questions": "node --env-file-if-exists=.env src/seed.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.11.0",
+    "mongoose": "^9.6.0",
+    "multer": "^2.5.0",
+    "pdf-parse": "^2.4.5",
+    "yauzl": "^3.2.0",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": { "supertest": "^7.2.2" }
+}
