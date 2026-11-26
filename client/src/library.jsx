@@ -5,6 +5,8 @@ import { api } from './api.js';
 import { Chip, DateLabel, Empty, Notice, PageHeading, Source, useTask } from './components.jsx';
 import { useWorkspace } from './workspace.jsx';
 
+const maxResumeMb = import.meta.env.MODE === 'vercel' ? 4 : 5;
+
 export function Resumes() {
   const { resumes, refresh } = useWorkspace();
   const [params, setParams] = useSearchParams();
@@ -18,10 +20,10 @@ export function Resumes() {
   function choose(candidate) {
     setValidation('');
     if (!candidate) return;
-    if (!/\.(pdf|docx)$/i.test(candidate.name) || candidate.size > 5 * 1024 * 1024) {
+    if (!/\.(pdf|docx)$/i.test(candidate.name) || candidate.size > maxResumeMb * 1024 * 1024) {
       setFile(null);
       if (input.current) input.current.value = '';
-      setValidation('Choose a PDF or DOCX file of 5 MB or less.');
+      setValidation('Choose a PDF or DOCX file of ' + maxResumeMb + ' MB or less.');
       return;
     }
     setFile(candidate);
@@ -64,7 +66,7 @@ export function Resumes() {
               accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               disabled={task.pending} onChange={(event) => choose(event.target.files[0])} />
             <span className="icon-tile"><CloudUpload size={23} /></span>
-            <strong>{file?.name || 'Choose a file or drag it here'}</strong><small>PDF or DOCX · up to 5 MB</small>
+            <strong>{file?.name || 'Choose a file or drag it here'}</strong><small>PDF or DOCX · up to {maxResumeMb} MB</small>
           </label>
           <Notice>{validation || task.error}</Notice>
           <button className="button primary" disabled={!file || task.pending}><CloudUpload size={17} />{task.pending ? 'Working…' : 'Upload and extract'}</button>

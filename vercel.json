@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build --workspace client -- --mode vercel",
+  "outputDirectory": "client/dist",
+  "rewrites": [
+    {
+      "source": "/:page(sign-in|resumes|jobs|compare|interviews|settings)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/interviews/:id",
+      "destination": "/index.html"
+    }
+  ]
+}

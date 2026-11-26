@@ -61,13 +61,13 @@ export async function owned(model, userId, id, projection) {
   return item;
 }
 
-export function handleError(error, _req, res, next) {
+export function handleError(error, _req, res, next, maxResumeMb) {
   if (res.headersSent) return next(error);
   if (error instanceof z.ZodError) {
     return res.status(400).json({ message: error.issues[0]?.message || 'Check your input.' });
   }
   if (error.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ message: 'Upload a resume of 5 MB or less.' });
+    return res.status(413).json({ message: 'Upload a resume of ' + maxResumeMb + ' MB or less.' });
   }
   if (error.name === 'MulterError') {
     return res.status(400).json({ message: 'Upload exactly one resume file.' });

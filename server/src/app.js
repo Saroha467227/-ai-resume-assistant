@@ -29,10 +29,6 @@ const jobInput = z.object({
   rawText: z.string().trim().min(40, 'Paste at least 40 characters of the job description.').max(20_000)
 });
 const answerInput = z.object({ questionId: z.uuid(), answer: z.string().trim().min(1).max(5000) });
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { files: 1, fileSize: 5 * 1024 * 1024, fields: 0, parts: 2 }
-});
 const clientDist = fileURLToPath(new URL('../../client/dist/', import.meta.url));
 const clientIndex = fileURLToPath(new URL('../../client/dist/index.html', import.meta.url));
 
@@ -41,6 +37,11 @@ export function createApp(config) {
   const api = express.Router();
   const session = sessionMiddleware(config);
   const generate = config.generate || createLlm(config.llm);
+  const maxResumeMb = config.maxResumeMb ?? 5;
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { files: 1, fileSize: maxResumeMb * 1024 * 1024, fields: 0, parts: 2 }
+  });
   const origins = new Set(config.clientOrigins);
   const authLimit = rateLimit({
     windowMs: 15 * 60_000,
@@ -238,10 +239,10 @@ export function createApp(config) {
   });
 
   api.use((_req, _res, next) => next(new HttpError(404, 'This endpoint could not be found.')));
-  if (existsSync(clientIndex)) {
+  if (config.serveClient !== false && existsSync(clientIndex)) {
     app.use(express.static(clientDist));
     app.get('/{*path}', (_req, res) => res.sendFile(clientIndex));
   }
-  app.use(handleError);
+  app.use((error, req, res, next) => handleError(error, req, res, next, maxResumeMb));
   return app;
 }

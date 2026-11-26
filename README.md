@@ -97,3 +97,19 @@ npm.cmd test
 ~~~
 
 For HTTPS hosting, set `NODE_ENV=production` and set `CLIENT_ORIGIN` to the public origin of the app. Set `TRUST_PROXY_HOPS` to match your deployment if there is a reverse proxy. Serve the build and API on the same origin to preserve session cookies. Keep the MongoDB connection string, JWT secret, and Gemini key in the hosting service’s environment settings.
+
+## Deploy on Vercel
+
+Import the GitHub repository with the project root set to the repository root. [vercel.json](vercel.json) configures the React build, the page routes, and the Express function under `/api`. Both run on the same origin.
+
+Set these variables for the Vercel environment you deploy.
+
+| Variable | Value |
+| --- | --- |
+| `MONGODB_URI` | A connection string for a cloud MongoDB database reachable by Vercel. The MongoDB Atlas Marketplace integration can configure this value. |
+| `JWT_SECRET` | A deployment-specific random secret of at least 32 bytes. |
+| `MONGODB_DB_NAME` | Optional database name. Defaults to `resume_studio`. The database user needs read and write access to this database. |
+| `GEMINI_API_KEY` | Optional key for Gemini-assisted extraction and interview feedback. |
+| `CLIENT_ORIGIN` | Optional additional HTTPS origins, separated by commas. Leave system environment variables enabled so the default Vercel URLs are recognized automatically. |
+
+Deploy after configuring the variables. Open `/api/health` on the deployment and check for HTTP 200 with `{"status":"ok"}`. Then create a test account, upload the sample resume above, and run a fit analysis. The Vercel deployment accepts files up to 4 MB, leaving room for multipart request overhead. [Vercel Functions payload limits](https://vercel.com/docs/functions/limitations#request-body-size) · [MongoDB Atlas integration](https://www.mongodb.com/docs/atlas/reference/partner-integrations/vercel/)
