@@ -1,7 +1,6 @@
 import { basename } from 'node:path';
 import { promisify } from 'node:util';
 import mammoth from 'mammoth';
-import { PDFParse } from 'pdf-parse';
 import yauzl from 'yauzl';
 import { HttpError } from './http.js';
 
@@ -49,6 +48,7 @@ export async function parseResume(file) {
   let text;
   try {
     if (isPdf) {
+      const { PDFParse } = await import('pdf-parse');
       const parser = new PDFParse({ data: file.buffer, isEvalSupported: false, disableFontFace: true });
       try {
         const info = await parser.getInfo();

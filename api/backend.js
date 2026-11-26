@@ -56,6 +56,14 @@ function unavailable(res, message) {
 }
 
 export default async function handler(req, res) {
+  const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/api/backend') {
+    const route = url.searchParams.get('__resume_api_path');
+    if (route && /^[a-z\d/_-]+$/i.test(route)) {
+      url.searchParams.delete('__resume_api_path');
+      req.url = '/api/' + route + url.search;
+    }
+  }
   if (!process.env.MONGODB_URI || Buffer.byteLength(process.env.JWT_SECRET || '') < 32) {
     return unavailable(res, 'The deployment is awaiting database and session configuration.');
   }
