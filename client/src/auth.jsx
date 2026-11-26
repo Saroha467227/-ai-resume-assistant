@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { ArrowRight, ChartNoAxesCombined, Check, FileText, Layers3, MessageCircle, MoveUpRight } from 'lucide-react';
+import { ArrowRight, FileText, Layers3 } from 'lucide-react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { api, messageFrom } from './api.js';
 
@@ -32,6 +32,25 @@ export function Brand({ light = false }) {
   </div>;
 }
 
+function SampleFitReport() {
+  return <aside className="auth-example" aria-label="Sample fit report">
+    <div className="sample-paper">
+      <p className="sample-caption"><FileText size={16} aria-hidden="true" />Sample fit report</p>
+      <div className="sample-title">
+        <h2>Backend Engineer</h2>
+        <div className="sample-score"><span>Job fit</span><strong>78<small>/100</small></strong></div>
+      </div>
+      <dl className="sample-evidence">
+        <dt>Matched skills</dt><dd>Node.js, MongoDB</dd>
+      </dl>
+      <div className="sample-note">
+        <h3>Skill to review</h3>
+        <p>Redis appears in the job description. Your résumé doesn’t mention it.</p>
+      </div>
+    </div>
+  </aside>;
+}
+
 export function AuthPage() {
   const { user, setUser } = useAuth();
   const location = useLocation();
@@ -56,28 +75,11 @@ export function AuthPage() {
   }
 
   return <main className="auth-layout">
-    <section className="auth-story">
-      <Brand light />
-      <div className="auth-story-body">
-        <span className="auth-kicker"><span /> Job search toolkit</span>
-        <h1>Walk into your next interview prepared.</h1>
-        <p>See where your experience fits a role, then practice the questions you’re most likely to face.</p>
-        <div className="sample-card">
-          <div className="sample-heading"><span className="sample-icon"><ChartNoAxesCombined size={22} /></span>
-            <div><strong>Backend Engineer</strong><small>Sample fit report</small></div>
-            <MoveUpRight size={18} className="sample-arrow" aria-hidden="true" />
-          </div>
-          <div className="sample-score"><strong>78<span>/100</span></strong><span className="sample-label">Job fit</span></div>
-          <div className="sample-progress"><span /></div>
-          <div className="sample-skills"><span><Check size={14} /> Node.js</span><span><Check size={14} /> MongoDB</span><span className="sample-gap">Practice Redis</span></div>
-        </div>
-        <div className="auth-features"><span><FileText size={17} /> Resume analysis</span><span><MessageCircle size={17} /> Interview practice</span></div>
-      </div>
-    </section>
+    <header className="auth-brand"><Brand /></header>
     <section className="auth-form-side">
       <div className="auth-form-box">
-        <h2>{register ? 'Create your account' : 'Welcome back'}</h2>
-        <p className="muted">{register ? 'Set up your personal workspace to get started.' : 'Sign in to continue preparing for your next role.'}</p>
+        <h1>{register ? 'Create your account' : 'Sign in to Resume Studio'}</h1>
+        <p className="muted">{register ? 'Compare your résumé with a job and practice interview questions about the role.' : 'Open your fit reports and pick up your interview practice.'}</p>
         <form className="stack auth-form" onSubmit={submit}>
           {register && <label>Full name<input name="name" autoComplete="name" placeholder="Alex Morgan" minLength={2} maxLength={80} required /></label>}
           <label>Email<input type="email" name="email" autoComplete="email" placeholder="you@example.com" maxLength={254} required /></label>
@@ -92,5 +94,6 @@ export function AuthPage() {
         </p>
       </div>
     </section>
+    <SampleFitReport />
   </main>;
 }
