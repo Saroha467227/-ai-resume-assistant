@@ -1,4 +1,5 @@
 import { basename } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import mammoth from 'mammoth';
 import yauzl from 'yauzl';
@@ -48,8 +49,15 @@ export async function parseResume(file) {
   let text;
   try {
     if (isPdf) {
+      const { CanvasFactory, getPath } = await import('pdf-parse/worker');
       const { PDFParse } = await import('pdf-parse');
-      const parser = new PDFParse({ data: file.buffer, isEvalSupported: false, disableFontFace: true });
+      PDFParse.setWorker(pathToFileURL(getPath()).href);
+      const parser = new PDFParse({
+        data: Uint8Array.from(file.buffer),
+        CanvasFactory,
+        isEvalSupported: false,
+        disableFontFace: true
+      });
       try {
         const info = await parser.getInfo();
         if (info.total > 30) throw new HttpError(422, 'Use a resume with 30 pages or fewer.');
@@ -63,6 +71,10 @@ export async function parseResume(file) {
     }
   } catch (error) {
     if (error instanceof HttpError) throw error;
+    if (isPdf && (error.code === 'ERR_MODULE_NOT_FOUND' || /fake worker|native binding|DOMMatrix/.test(error.message))) {
+      console.error('PDF runtime initialization failed:', error.name, error.code || '');
+      throw new HttpError(503, 'PDF processing is temporarily unavailable. Try again or upload a DOCX file.');
+    }
     throw new HttpError(422, 'This file could not be read. Try exporting a fresh copy of your resume.');
   }
 

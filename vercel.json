@@ -6,7 +6,7 @@
   "outputDirectory": "client/dist",
   "functions": {
     "api/backend.js": {
-      "includeFiles": "node_modules/{@napi-rs/canvas*,pdfjs-dist/standard_fonts}/**"
+      "includeFiles": "node_modules/{@napi-rs/canvas*/**,pdfjs-dist/standard_fonts/**,pdf-parse/dist/worker/pdf.worker.mjs}"
     }
   },
   "rewrites": [
