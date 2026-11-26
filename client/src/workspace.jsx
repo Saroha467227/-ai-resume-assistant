@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, BriefcaseBusiness, ChartNoAxesCombined, ChevronRight, CircleHelp, FileText, LayoutDashboard, LogOut, Menu, MessageCircle, Settings, X } from 'lucide-react';
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from 'react-router-dom';
 import { api, messageFrom } from './api.js';
@@ -15,30 +15,58 @@ const navigation = [
 ];
 export const useWorkspace = () => useOutletContext();
 
+const paths = { resumes: '/resumes', jobs: '/job-descriptions', reports: '/analyses', interviews: '/interviews' };
+const pageSize = 20;
+const emptyLibrary = { resumes: [], jobs: [], reports: [], interviews: [] };
+
 export function Workspace() {
   const { user, setUser } = useAuth();
   const location = useLocation();
   const [menu, setMenu] = useState(false);
-  const [library, setLibrary] = useState(null);
+  const [sections, setSections] = useState({});
   const [error, setError] = useState('');
   const [loggingOut, setLoggingOut] = useState(false);
-  const refresh = useCallback(async (signal) => {
+  const requestVersion = useRef(0);
+  const overview = location.pathname === '/';
+
+  const loadSection = useCallback(async (key, { signal, offset = 0, version = requestVersion.current } = {}) => {
+    setSections((current) => ({ ...current, [key]: { ...current[key], pending: true, error: '' } }));
     try {
-      const [resumes, jobs, reports, interviews] = await Promise.all(
-        ['/resumes', '/job-descriptions', '/analyses', '/interviews'].map((path) => api.get(path, { signal }))
-      );
-      setLibrary({ resumes: resumes.data, jobs: jobs.data, reports: reports.data, interviews: interviews.data });
-      setError('');
+      const paginated = overview || key === 'reports' || key === 'interviews';
+      const { data, headers } = await api.get(paths[key], {
+        signal,
+        params: paginated ? { limit: overview ? 5 : pageSize, offset } : undefined
+      });
+      if (signal?.aborted || version !== requestVersion.current) return;
+      setSections((current) => {
+        const rows = offset ? [...(current[key]?.rows || []), ...data] : data;
+        return { ...current, [key]: {
+          rows: [...new Map(rows.map((row) => [row._id, row])).values()],
+          offset: offset + data.length,
+          total: Number(headers['x-total-count'] ?? rows.length),
+          best: headers['x-best-score'] === undefined ? null : Number(headers['x-best-score']),
+          pending: false
+        } };
+      });
     } catch (err) {
-      if (!signal?.aborted) setError(messageFrom(err));
+      if (signal?.aborted || version !== requestVersion.current) return;
+      setSections((current) => ({ ...current, [key]: { ...current[key], pending: false, error: messageFrom(err) } }));
     }
-  }, []);
+  }, [overview]);
+
+  const refresh = useCallback(async (signal) => {
+    const version = ++requestVersion.current;
+    await Promise.all(Object.keys(paths).map((key) => loadSection(key, { signal, version })));
+  }, [loadSection]);
 
   useEffect(() => {
     const controller = new AbortController();
     refresh(controller.signal);
     return () => controller.abort();
   }, [refresh]);
+
+  const library = Object.fromEntries(Object.entries(emptyLibrary)
+    .map(([key, rows]) => [key, sections[key]?.rows || rows]));
 
   async function logout() {
     setLoggingOut(true);
@@ -80,9 +108,14 @@ export function Workspace() {
       </header>
       <main className="content">
         <Notice>{error}</Notice>
-        {library ? <Outlet context={{ ...library, refresh }} /> : error
-          ? <button type="button" className="button secondary" onClick={() => refresh()}>Retry loading workspace</button>
-          : <Loading text="Loading your workspace…" />}
+        {Object.entries(sections).filter(([, section]) => section.error).map(([key, section]) =>
+          <div key={key}><Notice>{key + ': ' + section.error}</Notice>
+            <button type="button" className="button secondary" onClick={() => loadSection(key)}>Retry {key}</button>
+          </div>)}
+        <Outlet context={{
+          ...library, sections, refresh,
+          loadMore: (key) => loadSection(key, { offset: sections[key]?.offset || 0 })
+        }} />
       </main>
     </div>
   </div>;
@@ -96,19 +129,19 @@ const steps = [
 
 export function Overview() {
   const { user } = useAuth();
-  const { resumes, jobs, reports, interviews } = useWorkspace();
-  const bestScore = reports.reduce((score, report) => report.score == null ? score : Math.max(score ?? 0, report.score), null);
+  const { jobs, reports, interviews, sections } = useWorkspace();
+  const bestScore = sections.reports?.best ?? null;
   const activities = [
     ...reports.map((report) => ({
       id: report._id, date: report.updatedAt, type: 'Fit report', icon: ChartNoAxesCombined,
       detail: report.score === null ? 'No scored requirements' : report.score + '/100',
-      title: jobs.find((job) => job._id === report.jdId)?.title || 'Fit analysis',
+      title: report.jobTitle || jobs.find((job) => job._id === report.jdId)?.title || 'Fit analysis',
       to: '/compare?report=' + report._id
     })),
     ...interviews.map((interview) => ({
       id: interview._id, date: interview.updatedAt, type: 'Interview', icon: MessageCircle,
       detail: interview.status === 'complete' ? interview.summary.score + '/5' : 'In progress',
-      title: jobs.find((job) => job._id === interview.jdId)?.title || 'Practice session',
+      title: interview.jobTitle || jobs.find((job) => job._id === interview.jdId)?.title || 'Practice session',
       to: '/interviews/' + interview._id
     }))
   ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
@@ -125,10 +158,10 @@ export function Overview() {
     </div>
     <div className="stat-grid">
       {[
-        { icon: FileText, label: 'Resumes', value: resumes.length, to: '/resumes' },
-        { icon: BriefcaseBusiness, label: 'Job descriptions', value: jobs.length, to: '/jobs' },
+        { icon: FileText, label: 'Resumes', value: sections.resumes?.total ?? '—', to: '/resumes' },
+        { icon: BriefcaseBusiness, label: 'Job descriptions', value: sections.jobs?.total ?? '—', to: '/jobs' },
         { icon: ChartNoAxesCombined, label: 'Best fit score', value: bestScore === null ? '—' : bestScore + '%', to: '/compare' },
-        { icon: MessageCircle, label: 'Interviews', value: interviews.length, to: '/interviews' }
+        { icon: MessageCircle, label: 'Interviews', value: sections.interviews?.total ?? '—', to: '/interviews' }
       ].map(({ icon: Icon, label, value, to }) => <Link key={label} className="stat-card" to={to}>
         <span className="icon-tile"><Icon size={19} /></span><ChevronRight size={16} className="stat-arrow" />
         <strong>{value}</strong><span>{label}</span>
@@ -146,8 +179,17 @@ export function Overview() {
         <h2>Recent activity</h2>
         {activities.length ? <div className="list">{activities.map(({ id, icon: Icon, date, type, detail, title, to }) => <Link className="list-row" key={id} to={to}>
           <span className="icon-tile"><Icon size={18} /></span><span className="list-title"><strong>{title}</strong><small>{type} · <DateLabel value={date} /></small></span><span className="list-meta">{detail}</span>
-        </Link>)}</div> : <Empty icon={CircleHelp} title="Activity will appear here" detail="Run a fit analysis or start a practice interview to see it here." />}
+        </Link>)}</div> : sections.reports?.pending || sections.interviews?.pending ? <Loading /> : <Empty icon={CircleHelp} title="Activity will appear here" detail="Run a fit analysis or start a practice interview to see it here." />}
       </section>
     </div>
   </>;
+}
+
+export function HistoryPagination({ section }) {
+  const { sections, loadMore } = useWorkspace();
+  const page = sections[section];
+  if (!page?.rows) return page?.pending ? <Loading /> : null;
+  if (page.offset >= page.total) return null;
+  return <button type="button" className="button secondary" disabled={page.pending}
+    onClick={() => loadMore(section)}>{page.pending ? 'Loading…' : 'Load more'}</button>;
 }

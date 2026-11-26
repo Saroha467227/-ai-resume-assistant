@@ -11,10 +11,11 @@ import mongoose from 'mongoose';
 import multer from 'multer';
 import { z } from 'zod';
 import { extractJob, extractResume } from './extraction.js';
-import { handleError, HttpError, owned, pairInput, publicUser, sessionMiddleware } from './http.js';
+import { handleError, HttpError, objectId, owned, pairInput, publicUser, sessionMiddleware } from './http.js';
 import { applyEvaluation, evaluateAnswer, makeQuestions, questionBank } from './interview.js';
 import { createLlm } from './llm.js';
 import { FitReport, InterviewSession, JobDescription, LlmQuota, QuestionBank, Resume, User } from './models.js';
+import { mutateWorkspace } from './mutations.js';
 import { parseResume } from './parser.js';
 import { scoreFit } from './scoring.js';
 
@@ -29,6 +30,28 @@ const jobInput = z.object({
   rawText: z.string().trim().min(40, 'Paste at least 40 characters of the job description.').max(20_000)
 });
 const answerInput = z.object({ questionId: z.uuid(), answer: z.string().trim().min(1).max(5000) });
+const pageInput = z.object({
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  offset: z.coerce.number().int().min(0).max(1000000).default(0)
+});
+
+async function sendPage(req, res, model, projection, sort) {
+  const { limit, offset } = pageInput.parse(req.query);
+  const filter = { userId: req.user._id };
+  const query = model.find(filter).select(projection).sort({ [sort]: -1, _id: -1 });
+  if (!limit) return res.json(await query);
+  const [items, total] = await Promise.all([query.skip(offset).limit(limit).lean(), model.countDocuments(filter)]);
+  res.set('X-Total-Count', String(total));
+  if (model === FitReport) {
+    const best = await model.findOne({ ...filter, score: { $type: 'number' } }).sort('-score').select('score');
+    if (best) res.set('X-Best-Score', String(best.score));
+  }
+  if (model !== FitReport && model !== InterviewSession) return res.json(items);
+  const jobs = await JobDescription.find({ ...filter, _id: { $in: items.map((item) => item.jdId) } }).select('title').lean();
+  const titles = new Map(jobs.map((job) => [String(job._id), job.title]));
+  return res.json(items.map((item) => ({ ...item, jobTitle: titles.get(String(item.jdId)) })));
+}
+
 const clientDist = fileURLToPath(new URL('../../client/dist/', import.meta.url));
 const clientIndex = fileURLToPath(new URL('../../client/dist/index.html', import.meta.url));
 
@@ -62,7 +85,7 @@ export function createApp(config) {
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxyHops || false);
   app.use(helmet({ contentSecurityPolicy: { directives: { upgradeInsecureRequests: config.secureCookies ? [] : null } } }));
-  app.use('/api', cors({ origin: (origin, callback) => callback(null, Boolean(origin && origins.has(origin))), credentials: true }));
+  app.use('/api', cors({ origin: (origin, callback) => callback(null, Boolean(origin && origins.has(origin))), credentials: true, exposedHeaders: ['X-Total-Count', 'X-Best-Score'] }));
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
     const origin = req.get('origin');
@@ -119,16 +142,20 @@ export function createApp(config) {
     const user = await User.findById(req.user._id).select('+passwordHash +password');
     const hash = user?.passwordHash || user?.password;
     if (!hash || !await bcrypt.compare(input, hash)) throw new HttpError(401, 'Password is incorrect.');
-    const userFilter = { userId: user._id };
-    await Promise.all([Resume, JobDescription, FitReport, InterviewSession].map((model) => model.deleteMany(userFilter)));
-    await LlmQuota.deleteMany({ _id: { $regex: '^' + user.id + ':' } });
-    await user.deleteOne();
+    await mutateWorkspace(user._id, async () => {
+      const userFilter = { userId: user._id };
+      for (const model of [FitReport, InterviewSession, Resume, JobDescription]) {
+        await model.deleteMany(userFilter);
+      }
+      await LlmQuota.deleteMany({ _id: { $regex: '^' + user.id + ':' } });
+      await User.deleteOne({ _id: user._id });
+    });
     session.clear(res);
     res.sendStatus(204);
   });
 
   api.get('/resumes', async (req, res) => {
-    res.json(await Resume.find({ userId: req.user._id }).select('fileName mimeType parsed createdAt').sort('-createdAt'));
+    await sendPage(req, res, Resume, 'fileName mimeType parsed createdAt', 'createdAt');
   });
   api.get('/resumes/:id', async (req, res) => {
     res.json(await owned(Resume, req.user._id, req.params.id, 'fileName mimeType parsed createdAt'));
@@ -142,14 +169,14 @@ export function createApp(config) {
     const parsed = await extractResume(rawText, generate, userId);
     let result;
     try {
-      result = await Resume.findOneAndUpdate(
+      result = await mutateWorkspace(userId, () => Resume.findOneAndUpdate(
         { userId, textHash },
         { $setOnInsert: { userId, textHash, fileName, mimeType, rawText, parsed, createdAt: new Date(), updatedAt: new Date() } },
         { upsert: true, returnDocument: 'after', includeResultMetadata: true, timestamps: false,
           select: 'fileName mimeType parsed createdAt',
           setDefaultsOnInsert: false,
           runValidators: true }
-      );
+      ));
     } catch (error) {
       if (error.code !== 11000) throw error;
       const saved = await Resume.findOne({ userId, textHash }).select('fileName mimeType parsed createdAt');
@@ -160,15 +187,18 @@ export function createApp(config) {
   });
   api.delete('/resumes/:id', async (req, res) => {
     const userId = req.user._id;
-    const resume = await owned(Resume, userId, req.params.id);
-    const filter = { userId, resumeId: resume._id };
-    await Promise.all([FitReport.deleteMany(filter), InterviewSession.deleteMany(filter)]);
-    await resume.deleteOne();
+    const id = objectId.parse(req.params.id);
+    await mutateWorkspace(userId, async () => {
+      const filter = { userId, resumeId: id };
+      await FitReport.deleteMany(filter);
+      await InterviewSession.deleteMany(filter);
+      await Resume.deleteOne({ _id: id, userId });
+    });
     res.sendStatus(204);
   });
 
   api.get('/job-descriptions', async (req, res) => {
-    res.json(await JobDescription.find({ userId: req.user._id }).sort('-createdAt'));
+    await sendPage(req, res, JobDescription, '', 'createdAt');
   });
   api.get('/job-descriptions/:id', async (req, res) => {
     res.json(await owned(JobDescription, req.user._id, req.params.id, '+rawText'));
@@ -177,40 +207,48 @@ export function createApp(config) {
     const data = jobInput.parse(req.body);
     const userId = req.user._id;
     const extracted = await extractJob(data.rawText, generate, userId);
-    const doc = await JobDescription.create({ userId, ...data, ...extracted });
+    const doc = await mutateWorkspace(userId, () => JobDescription.create({ userId, ...data, ...extracted }));
     const { rawText, ...job } = doc.toObject();
     res.status(201).json(job);
   });
   api.delete('/job-descriptions/:id', async (req, res) => {
     const userId = req.user._id;
-    const job = await owned(JobDescription, userId, req.params.id);
-    const filter = { userId, jdId: job._id };
-    await Promise.all([FitReport.deleteMany(filter), InterviewSession.deleteMany(filter)]);
-    await job.deleteOne();
+    const id = objectId.parse(req.params.id);
+    await mutateWorkspace(userId, async () => {
+      const filter = { userId, jdId: id };
+      await FitReport.deleteMany(filter);
+      await InterviewSession.deleteMany(filter);
+      await JobDescription.deleteOne({ _id: id, userId });
+    });
     res.sendStatus(204);
   });
 
   async function loadPair(req) {
     const { resumeId, jdId } = pairInput.parse(req.body);
     const userId = req.user._id;
-    const [resume, job] = await Promise.all([owned(Resume, userId, resumeId), owned(JobDescription, userId, jdId)]);
+    const resume = await owned(Resume, userId, resumeId);
+    const job = await owned(JobDescription, userId, jdId);
     return { resume, job, filter: { userId, resumeId, jdId } };
   }
 
   api.get('/analyses', async (req, res) => {
-    res.json(await FitReport.find({ userId: req.user._id }).sort('-updatedAt'));
+    await sendPage(req, res, FitReport, '', 'updatedAt');
+  });
+  api.get('/analyses/:id', async (req, res) => {
+    res.json(await owned(FitReport, req.user._id, req.params.id));
   });
   api.post('/analyses', async (req, res) => {
-    const { resume, job, filter } = await loadPair(req);
-    const fit = scoreFit(resume.parsed, job);
-    const report = await FitReport.findOneAndUpdate(filter, { $set: fit }, { upsert: true, returnDocument: 'after' });
+    const report = await mutateWorkspace(req.user._id, async () => {
+      const { resume, job, filter } = await loadPair(req);
+      const fit = scoreFit(resume.parsed, job);
+      return FitReport.findOneAndUpdate(filter, { $set: fit }, { upsert: true, returnDocument: 'after' });
+    });
     res.json(report);
   });
 
   api.get('/interviews', async (req, res) => {
-    const sessions = await InterviewSession.find({ userId: req.user._id })
-      .select('resumeId jdId status turns.questionId turns.evaluation.score summary.score createdAt updatedAt').sort('-updatedAt');
-    res.json(sessions);
+    await sendPage(req, res, InterviewSession,
+      'resumeId jdId status turns.questionId turns.evaluation.score summary.score createdAt updatedAt', 'updatedAt');
   });
   api.get('/interviews/:id', async (req, res) => {
     res.json(await owned(InterviewSession, req.user._id, req.params.id));
@@ -221,7 +259,11 @@ export function createApp(config) {
     const stored = await QuestionBank.find({ skillTags: { $in: skillTags } }).sort('_id').limit(5);
     const curated = stored.length ? stored : questionBank.filter((item) => item.skillTags.some((skill) => skillTags.includes(skill)));
     const turns = await makeQuestions(resume.parsed, job, scoreFit(resume.parsed, job), curated, generate, req.user._id);
-    res.status(201).json(await InterviewSession.create({ ...filter, turns }));
+    const interview = await mutateWorkspace(req.user._id, async () => {
+      await loadPair(req);
+      return InterviewSession.create({ ...filter, turns });
+    });
+    res.status(201).json(interview);
   });
   api.post('/interviews/:id/answers', workLimit, async (req, res) => {
     const { questionId, answer } = answerInput.parse(req.body);
@@ -233,9 +275,16 @@ export function createApp(config) {
     const original = interview.turns.find((item) => item.questionId === turn.parentId) || turn;
     const job = await owned(JobDescription, req.user._id, String(interview.jdId));
     const result = await evaluateAnswer({ turn, original, answer, jobTitle: job.title, generate, userId: req.user._id });
-    applyEvaluation(interview, turn, answer, result);
-    await interview.save();
-    return res.json(interview);
+    const updated = await mutateWorkspace(req.user._id, async () => {
+      const current = await owned(InterviewSession, req.user._id, req.params.id);
+      const answered = current.turns.find((item) => item.questionId === questionId);
+      if (answered?.answer === answer) return current;
+      const next = current.turns.find((item) => !item.answer);
+      if (next?.questionId !== questionId) throw new HttpError(409, 'That question is no longer awaiting an answer.');
+      applyEvaluation(current, next, answer, result);
+      return current.save();
+    });
+    return res.json(updated);
   });
 
   api.use((_req, _res, next) => next(new HttpError(404, 'This endpoint could not be found.')));

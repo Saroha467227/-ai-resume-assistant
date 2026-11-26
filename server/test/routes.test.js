@@ -75,6 +75,24 @@ test('persists the full job-seeker flow and enforces ownership', { skip: !dbUri 
     }
     assert.equal(interview.summary.improvements.length, 3);
     assert.equal((await owner.get('/api/interviews').expect(200)).body[0].status, 'complete');
+    const newest = await owner.post('/api/interviews').send(pair).expect(201);
+    const firstPage = await owner.get('/api/interviews?limit=1').expect(200);
+    assert.equal(firstPage.headers['x-total-count'], '2');
+    assert.equal(firstPage.body[0]._id, newest.body._id);
+    const secondPage = await owner.get('/api/interviews?limit=1&offset=1').expect(200);
+    assert.equal(secondPage.body[0]._id, interview._id);
+    await owner.get('/api/interviews?limit=51').expect(400);
+    await other.get('/api/analyses/' + report._id).expect(404);
+    await owner.get('/api/analyses/' + report._id).expect(200);
+    const [created, deleted] = await Promise.all([
+      owner.post('/api/interviews').send(pair),
+      owner.delete('/api/job-descriptions/' + job._id)
+    ]);
+    assert.ok([201, 404].includes(created.status));
+    assert.equal(deleted.status, 204);
+    await owner.delete('/api/job-descriptions/' + job._id).expect(204);
+    assert.deepEqual((await owner.get('/api/interviews').expect(200)).body, []);
+    assert.deepEqual((await owner.get('/api/analyses').expect(200)).body, []);
     await owner.post('/api/auth/logout').expect(204);
     await owner.get('/api/auth/me').expect(401);
     await owner.post('/api/auth/login').send({ email: 'alex@example.com', password }).expect(200);

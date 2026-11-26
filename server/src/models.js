@@ -9,7 +9,8 @@ const userSchema = new Schema({
   email: { type: String, unique: true, required: true },
   passwordHash: { type: String, select: false },
   password: { type: String, select: false },
-  targetRole: { type: String, default: '' }
+  targetRole: { type: String, default: '' },
+  workspaceRevision: { type: Number, select: false }
 }, timestamps);
 
 const resumeSchema = new Schema({
@@ -49,6 +50,8 @@ const reportSchema = new Schema({
   suggestions: [String]
 }, timestamps);
 reportSchema.index({ userId: 1, resumeId: 1, jdId: 1 }, { unique: true });
+reportSchema.index({ userId: 1, updatedAt: -1, _id: -1 });
+reportSchema.index({ userId: 1, score: -1 });
 
 const evaluationSchema = new Schema({
   score: { type: Number, min: 1, max: 5 },
@@ -75,6 +78,7 @@ const interviewSchema = new Schema({
   summary: Schema.Types.Mixed
 }, { ...timestamps, optimisticConcurrency: true });
 interviewSchema.index({ userId: 1, createdAt: -1 });
+interviewSchema.index({ userId: 1, updatedAt: -1, _id: -1 });
 
 const questionSchema = new Schema({
   text: { type: String, unique: true },

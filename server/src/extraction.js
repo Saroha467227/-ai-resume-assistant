@@ -123,7 +123,7 @@ export async function extractJob(rawText, generate, userId) {
   let bucket = required;
   for (const line of text.split('\n')) {
     if (/^\s*[-•]?\s*(?:preferred|desirable|nice[- ]to[- ]have|bonus|advantage)/i.test(line)) bucket = preferred;
-    else if (/^\s*[-•]?\s*(?:required|minimum|must[- ]have|essential|qualifications)\b/i.test(line)) bucket = required;
+    else if (/^\s*[-•]?\s*(?:required|requirements?|minimum|must[- ]have|essential|qualifications)\b/i.test(line)) bucket = required;
     if (/^\s*(?:about (?:us|the role)|benefits|responsibilities|what you.ll do)\s*:?\s*$/i.test(line)) bucket = null;
     bucket?.push(line);
   }

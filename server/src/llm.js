@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LlmQuota } from './models.js';
+import { mutateWorkspace } from './mutations.js';
 
 export function createLlm({ apiKey, model, dailyLimit }, fetcher = fetch) {
   return async function generate({ userId, instruction, data, schema, temperature = 0.2 }) {
@@ -11,11 +12,11 @@ export function createLlm({ apiKey, model, dailyLimit }, fetcher = fetch) {
 
     try {
       // Conditional update keeps the shared daily limit intact across concurrent requests.
-      const quota = await LlmQuota.findOneAndUpdate(
+      const quota = await mutateWorkspace(userId, () => LlmQuota.findOneAndUpdate(
         { _id: quotaId, count: { $lt: dailyLimit } },
         { $inc: { count: 1 }, $setOnInsert: { expiresAt } },
         { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false }
-      );
+      ));
       if (!quota) return null;
 
       const response = await fetcher(

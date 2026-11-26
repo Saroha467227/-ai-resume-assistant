@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, Check, MessageCircle, Send, Target } from 'lucid
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, messageFrom } from './api.js';
 import { Chip, DateLabel, Empty, Loading, Notice, PageHeading, PairFields, ResourcePrompt, Source, useTask } from './components.jsx';
-import { useWorkspace } from './workspace.jsx';
+import { HistoryPagination, useWorkspace } from './workspace.jsx';
 
 const questionTypes = { core: 'Core question', gap: 'Skill gap', claim: 'Resume claim', followup: 'Follow-up' };
 
@@ -40,6 +40,7 @@ export function Interviews() {
           {session.status === 'complete' ? 'Complete · ' + session.summary.score + '/5' : 'In progress'}
         </Chip><ArrowRight size={16} />
       </Link>)}</div> : <Empty icon={MessageCircle} title="No interviews yet" detail="Start a practice session to build your history." />}
+      <HistoryPagination section="interviews" />
     </section>
   </>;
 }

@@ -84,6 +84,12 @@ test('redistributes unspecified weights and returns no score without requirement
   assert.equal(scoreFit({ skills: [] }, { requiredSkills: ['Python'] }).score, 0);
 });
 
+test('restores required skill extraction after a Responsibilities section', async () => {
+  const job = await extractJob('Responsibilities\nBuild backend features.\nRequirements\nNode.js and MongoDB expertise required.\nPreferred\nDocker', local);
+  assert.deepEqual(job.requiredSkills, ['Node.js', 'MongoDB']);
+  assert.deepEqual(job.preferredSkills, ['Docker']);
+});
+
 test('queues gap and claim questions and caps follow-ups at two per original question', async () => {
   const turns = await makeQuestions({ projects: ['Built a storefront API'], experience: [] },
     { title: 'Backend Engineer' }, { missing: ['Redis'] }, [], local);
